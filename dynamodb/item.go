@@ -233,6 +233,10 @@ func (t *Table) AddAttributes(key *Key, attributes []Attribute) (bool, error) {
 	return t.modifyAttributes(key, attributes, nil, "ADD")
 }
 
+func (t *Table) AddAttributesAndReturn(key *Key, attributes []Attribute, returnValues string) (map[string]*Attribute, error) {
+	return t.modifyAttributesAndReturn(key, attributes, nil, "ADD", returnValues)
+}
+
 func (t *Table) UpdateAttributes(key *Key, attributes []Attribute) (bool, error) {
 	return t.modifyAttributes(key, attributes, nil, "PUT")
 }
@@ -279,6 +283,50 @@ func (t *Table) modifyAttributes(key *Key, attributes, expected []Attribute, act
 	}
 
 	return true, nil
+}
+
+func (t *Table) modifyAttributesAndReturn(key *Key, attributes, expected []Attribute, action string, returnValues string) (map[string]*Attribute, error) {
+
+	if len(attributes) == 0 {
+		return nil, errors.New("At least one attribute is required.")
+	}
+
+	q := NewQuery(t)
+	q.AddKey(t, key)
+	q.AddUpdates(attributes, action)
+
+	if expected != nil {
+		q.AddExpected(expected)
+	}
+
+	q.buffer["ReturnValues"] = returnValues
+
+	jsonResponse, err := t.Server.queryServer(target("UpdateItem"), q)
+
+	if err != nil {
+		return nil, err
+	}
+
+	json, err := simplejson.NewJson(jsonResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	itemJson, ok := json.CheckGet("Attributes")
+	if !ok {
+		// We got an empty from amz. The item doesn't exist.
+		return nil, ErrNotFound
+	}
+
+	item, err := itemJson.Map()
+	if err != nil {
+		message := fmt.Sprintf("Unexpected response %s", jsonResponse)
+		return nil, errors.New(message)
+	}
+
+	return parseAttributes(item), nil
+
+	
 }
 
 func parseAttributes(s map[string]interface{}) map[string]*Attribute {
